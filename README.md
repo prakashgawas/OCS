@@ -47,7 +47,7 @@ The code uses Python 3.11.4.
 
 Please install the requirements using 
 
-pip install -r requirements.txt
+'pip install -r requirements.txt'
 
 Additonaly Gurobi is required to solve offline problems.
 

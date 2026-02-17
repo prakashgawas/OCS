@@ -40,3 +40,11 @@ This problem can be modeled as a **stochastic dynamic program (SDP)**:
 - actions are to assign the patient to a physician $p \in \mathcal{P}_n$ or to reject the patient.
 
 The objective is to choose decisions over the booking horizon to **minimize the total expected penalties** from patient rejections and non-preferred assignments, subject to physician capacity constraints.
+
+
+# Running the Code to learn policies
+python Learn_Main.py  --N 100 --s 8 --P 4 --I 8 --L 20  --kmin 1 --kmax 4 --pw 1  --cnp 10 --co 0  --runs 10 --new 1  --scenarios 5 --stoch 1 --um 1 --learn_iter 100   --time_limit 20  --mipgap 0.02 
+# Running the Code to simulate learnt policies
+python Learn_Sim.py --sims 1000 --model 1 --store_sim 0 --N 100 --s 8 --P 4 --I 8 --L 20 --kmin 1 --kmax 4 --pw 1  --cnp 10 --co 0  --runs 10 --new 1  --scenarios 5 --stoch 1 --um 1 --learn_iter 100  --time_limit 20 --mipgap 0.02 
+
+

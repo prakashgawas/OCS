@@ -43,8 +43,10 @@ The objective is to choose decisions over the booking horizon to **minimize the 
 
 
 # Running the Code to learn policies
+The following code will run PPA to execute 100 DAgger iterations for the Two-stage Stochastic expert with 10 scenarios, with a stopping criterion of 20 seconds and 2% MIPgap.
 python Learn_Main.py  --N 100 --s 8 --P 4 --I 8 --L 20  --kmin 1 --kmax 4 --pw 1  --cnp 10 --co 0  --runs 10 --new 1  --scenarios 5 --stoch 1 --um 1 --learn_iter 100   --time_limit 20  --mipgap 0.02 
 # Running the Code to simulate learnt policies
+The following code will simulate the first model learnt for a total 0f 100 episodes
 python Learn_Sim.py --sims 1000 --model 1 --store_sim 0 --N 100 --s 8 --P 4 --I 8 --L 20 --kmin 1 --kmax 4 --pw 1  --cnp 10 --co 0  --runs 10 --new 1  --scenarios 5 --stoch 1 --um 1 --learn_iter 100  --time_limit 20 --mipgap 0.02 
 
 

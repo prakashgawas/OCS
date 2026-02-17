@@ -42,6 +42,13 @@ This problem can be modeled as a **stochastic dynamic program (SDP)**:
 The objective is to choose decisions over the booking horizon to **minimize the total expected penalties** from patient rejections and non-preferred assignments, subject to physician capacity constraints.
 
 
+# Requirements
+The code uses Python 3.11.4.
+
+Please install the requirements using 
+pip install -r requirements.txt
+Additonaly Gurobi is require d to solve offline problems.
+
 # Running the Code to learn policies
 The following code will run PPA to execute 100 DAgger iterations for the Two-stage Stochastic expert with 10 scenarios, with a stopping criterion of 20 seconds and 2% MIPgap.
 

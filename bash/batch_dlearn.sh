@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --cpus-per-task=2    # 2 threads for each worker
 #SBATCH --ntasks=10          # 10 workers
-#SBATCH --mem=2G
+#SBATCH --mem=1G
 #SBATCH --time=48:00:00
-#SBATCH --partition=optimum
+#SBATCH --partition=optimumlong
 #SBATCH --array=1-100
 #SBATCH --output=../Doutput/arrayjob_%A_%a.out
 #SBATCH --begin=now+0hour
@@ -26,13 +26,13 @@ adapter="flat"
 #check stoch li runs new scen
 for N in 100
 do
-	for runs in  1500 2500 3000 3500
+	for runs in  50 500 1000 1500 2000 2500 3000 3500
 	do
-for scen in 30
+for scen in 5 
 	do
 for new in  1
 	do
-			for stoch in 1 0
+			for stoch in 1 
 		do
 		for pw in  1
 		do

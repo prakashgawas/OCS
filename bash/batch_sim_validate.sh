@@ -12,11 +12,6 @@ module load python
 module load anaconda
 conda activate scheduler_env
 
-N1=25
-N2=75
-s1=5
-s2=12
-var=1
 i=1
 w=0
 loc="server"
@@ -31,9 +26,13 @@ vanilla=1 #change
 gated=0 #change
 tl=30
 sims=1000
-mg=0.02
+N1=25
+N2=75
+s1=5
+s2=12
+var=1
 pw=1
-new=1
+mg=0.02
 kmin=1
 adapter="flat"
 #check stoch li runs new  scen
@@ -41,28 +40,27 @@ for k in  {0..400}
 do   
 	for runs in  10 #50 200 500 1000 1500 2000 2500 3000 3500 4000 #10 #2000 #
 	do
-	for mg in 0.01
+	for mg in 0.01 
 do
-	for new in  1 
+	for lm in 0.8
 	do
-
 	for stoch in  1
 		do
-	for scen in 30
+	for scen in    30
 	do
-		for  lm in 0.8
+		for new in 1
 		do
 
 	        if [ $SLURM_ARRAY_TASK_ID -eq $i ]
 		then
-	    	python ../src/Learn_Sim.py --sims $sims --model $k --seed 5001 --store_sim 0 --var $var --N1 $N1 --s1 $s1 --N2 $N2 --s2 $s2 --adapter $adapter --P $P --I 8 --L 20 --kmin $kmin --kmax $P --pw $pw  --cnp 10 --co 0  --runs $runs  --scenarios $scen --stoch $stoch --um $um --learn_iter $li  --resume $cont --use_weight $w --lm $lm --time_limit $tl --new $new --vanilla $vanilla --gated $gated --evolve_expert 0 --mipgap $mg > ../Soutput/Soutput$mg$kmin$runs$new$s$pw$P$k$tl$scen$stoch.txt	
+	    	python ../src/Learn_Sim.py --sims $sims --seed 6001  --model $k --store_sim 0 --var $var --N1 $N1 --s1 $s1 --N2 $N2 --s2 $s2 --adapter $adapter  --P $P --I 8 --L 20 --kmin $kmin --kmax $P --pw $pw  --cnp 10 --co 0  --runs $runs  --scenarios $scen --stoch $stoch --um $um --learn_iter $li  --resume $cont --use_weight $w --lm $lm --time_limit $tl --new $new --vanilla $vanilla --gated $gated --evolve_expert 0 --mipgap $mg > ../Soutput/Soutput$mg$kmin$runs$new$s1$pw$P$k$tl$scen$stoch.txt	
 		fi
 	    	(( i = $i +1 ))
 	done
-done
-done
-done
 
+done
+done
+done
 done
 done
 done

@@ -57,10 +57,11 @@ class IO_learning():
     
         # ---- Context features ----
         feature_names += [
-            "t_current",            # <-- added missing comma here
+            #"t_current",            # <-- added missing comma here
+            "arrival_score",
             "remaining_release",
             "priority_is_p1",
-            #"arrival_score"
+            #
             "duration"
         ]
     
@@ -88,8 +89,10 @@ class IO_learning():
             self.scenario = []
             for i in range(config['scenarios']):
                 self.scenario.append( AppointmentScheduler(
-                                                n_patients=config["ocs_param"]['N'],
-                                                sigma =config["ocs_param"]['sigma'],
+                                                n_patients1=config["ocs_param"]['N1'],
+                                                sigma1=config["ocs_param"]['sigma1'],
+                                                n_patients2=config["ocs_param"]['N2'],
+                                                sigma2=config["ocs_param"]['sigma2'],
                                                 n_phys=config["ocs_param"]['P'],
                                                 n_slots=config["ocs_param"]['I'],
                                                 k_max=config["ocs_param"]['k_max'],
@@ -103,6 +106,7 @@ class IO_learning():
                                                 release_cap=config["ocs_param"]['Rmax'],
                                                 cap_per_phys=config["ocs_param"]['L'],
                                                 time_limit=config["time_limit"],
+                                                var=config["ocs_param"]["var"],
                                                 mipgap=config["mipgap"],
                                                 seed=seed + i,
                                                 out_dir=self.folder,
@@ -111,8 +115,10 @@ class IO_learning():
         else:
             self.scenario = []
             self.scenario.append(SAppointmentScheduler(
-                                            n_patients=config["ocs_param"]['N'],
-                                            sigma =config["ocs_param"]['sigma'],
+                                            n_patients1=config["ocs_param"]['N1'],
+                                            sigma1=config["ocs_param"]['sigma1'],
+                                            n_patients2=config["ocs_param"]['N2'],
+                                            sigma2=config["ocs_param"]['sigma2'],
                                             n_phys=config["ocs_param"]['P'],
                                             n_slots=config["ocs_param"]['I'],
                                             k_max=config["ocs_param"]['k_max'],
@@ -127,6 +133,7 @@ class IO_learning():
                                             cap_per_phys=config["ocs_param"]['L'],
                                             time_limit=config["time_limit"],
                                             mipgap=config["mipgap"],
+                                            var=config["ocs_param"]["var"],
                                             seed=seed,
                                             out_dir=self.folder,
                                             suffix=False,
@@ -253,9 +260,10 @@ class IO_learning():
         eps = 1e-9
         MAX_OVERTIME = self.sim.MAX_OVERTIME
         # ---------- Context (normalized) ----------
-        t = int(state.get("t", 0))
-        N = int(state.get("N", max(1, getattr(self, "N", 1))))
-        t_current_norm = t / max(1, N)
+        #t = int(state.get("t", 0))
+        #N = int(state.get("N", max(1, getattr(self, "N", 1))))
+        #t_current_norm =  #t / max(1, N)
+        score = cur['score']
     
         remaining_release_raw = state.get("remaining_release", None)
         Rmax = state.get("Rmax", self.sim.Rmax)
@@ -266,7 +274,7 @@ class IO_learning():
     
         priority_is_p1 = 1 if int(cur.get("priority", 2)) == 1 else 0
     
-        vec: list[float | int] = [t_current_norm, remaining_release_norm, priority_is_p1, cur.get("duration")/60]
+        vec: list[float | int] = [score, remaining_release_norm, priority_is_p1, cur.get("duration")/60]
     
         # ---------- Per-physician features ----------
         preferred_phys = int(cur.get("preferred_phys", 0))
@@ -339,7 +347,8 @@ class IO_learning():
     
         counter = Counter(values)
         majority_label = counter.most_common(1)[0][0]
-        return majority_label
+        dist = self.get_dist(values)
+        return majority_label, dist
     
     def sampled_vote(self, values, policy):
         dist = self.get_dist(values)

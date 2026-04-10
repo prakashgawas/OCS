@@ -33,8 +33,10 @@ def track_memory(interval=0.5):
 
 class SAppointmentScheduler():
     def __init__( self,
-                 n_patients: int = 100,
-                 sigma: int = 8,
+                 n_patients1: int = 25,
+                 sigma1: int = 8,
+                 n_patients2: int = 100,
+                 sigma2: int = 8,
                  n_phys: int = 5,
                  n_slots: int = 8,
                  slot_minutes: int = 30,
@@ -50,6 +52,7 @@ class SAppointmentScheduler():
                  k_max:Optional[int] = None,
                  k_min:Optional[int] = None,
                  physician_weights: bool = False,
+                 var:int=0,
                  seed: int = 123,
                  time_limit: int = 30,
                  mipgap:int = 0,
@@ -58,8 +61,10 @@ class SAppointmentScheduler():
                  num_scenarios:int = 5):
         
         # Sizes / time structure
-        self.N = n_patients
-        self.sigma = sigma
+        self.N1 = n_patients1
+        self.sigma1 = sigma1
+        self.N2 = n_patients2
+        self.sigma2 = sigma2
         self.P = n_phys
         self.I = n_slots
         self.Delta = slot_minutes
@@ -86,7 +91,7 @@ class SAppointmentScheduler():
         self.seed = seed
         self.time_limit = time_limit
         self.mipgap = mipgap
-        self.out_dir = out_dir + f"Instances_N{n_patients}_s{sigma}_P{n_phys}_I{n_slots}_L{cap_per_phys}_{k_min}_{k_max}_{physician_weights}_{c_miss_1}_{c_miss_2}_{c_overtime}_{c_np_per}" if suffix else out_dir
+        self.out_dir = out_dir + f"Instances_N{n_patients1}-{n_patients2}_s{sigma1}-{sigma2}_P{n_phys}_I{n_slots}_L{cap_per_phys}_{k_min}_{k_max}_{physician_weights}_{c_miss_1}_{c_miss_2}_{c_overtime}_{c_np_per}" if suffix else out_dir
         self.eligibility_mode = "dirichlet_topk"
         if  self.eligibility_mode == "dirichlet_topk":
             
@@ -114,8 +119,10 @@ class SAppointmentScheduler():
         self.scenarios = []
         
         for i in range(self.num_scenarios):
-           bp = AppointmentScheduler(n_patients=n_patients,
-                           sigma = sigma,
+           bp = AppointmentScheduler(n_patients1=n_patients1,
+                           sigma1 = sigma1,
+                           n_patients2=n_patients2,
+                           sigma2 = sigma2,
                            n_phys=n_phys,
                            n_slots=n_slots,
                            k_max=k_max,
@@ -125,6 +132,7 @@ class SAppointmentScheduler():
                            c_miss_2=c_miss_2,
                            c_overtime=c_overtime,
                            c_np_per=c_np_per,
+                           var=var,
                            physician_weights=physician_weights,
                            release_cap=release_cap,
                            cap_per_phys=cap_per_phys,
@@ -552,8 +560,10 @@ class SAppointmentScheduler():
         assert self.model is not None
         #start = time.time()
         res = self.solver.solve(self.model, tee=tee)
+
         #duration = time.time() - start
-        duration = res.solver.time
+        duration = res.solver._list[0]['Wall time']
+        
         status = str(res.solver.status)
         term = str(res.solver.termination_condition)
         # Try to compute MIP gap
@@ -940,8 +950,10 @@ if __name__ == "__main__":
     config = build_config(args)
     
     sched = SAppointmentScheduler(
-        n_patients=config.ocs_param['N'],
-        sigma=config.ocs_param['sigma'],
+        n_patients1=config.ocs_param['N1'],
+        sigma1=config.ocs_param['sigma1'],
+        n_patients2=config.ocs_param['N2'],
+        sigma2=config.ocs_param['sigma2'],
         n_phys=config.ocs_param['P'],
         n_slots=config.ocs_param['I'],
         k_max=config.ocs_param['k_max'],
@@ -963,9 +975,9 @@ if __name__ == "__main__":
     tag = f"OCS_{config.seed}"
 
     sched.setup_solver()
-    patient = sched.scenarios[0].generate_patient(0)
+    patient = sched.scenarios[0].generate_patient(0, 1)
     state =   {'t': 0, 'N': 100, 'N_total': 97, 'P': 4, 'Rmax': 80,
-               'session_time': 240, 'patients_arrived': 1,
+               'session_time': 240, 'patients_arrived': 1, "patient_count" :{1:0 + int(patient.priority ==1), 2:0 + int(patient.priority ==2)},
                'current_patient': {'n': 0, 'pid': patient.pid, 'priority': patient.priority,
                                    'score': patient.score, 'duration': patient.duration,
                                    'preferred_phys': patient.preferred_phys, 'available_phys': [1, 1, 1, 1],

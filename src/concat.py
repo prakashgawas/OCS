@@ -10,7 +10,7 @@ import os
 import glob
 import pandas as pd
 
-def concat_all_csvs(folder: str, out_csv: str, pattern: str = "*.csv", identifier: bool = False):
+def concat_all_csvs(folder: str, out_csv: str, pattern: str = "merged*.csv", identifier: bool = False):
     """
     Concatenate all CSV files in `folder` (same columns) into `out_csv`.
     """
@@ -30,9 +30,14 @@ def concat_all_csvs(folder: str, out_csv: str, pattern: str = "*.csv", identifie
     out = pd.concat(dfs, ignore_index=True)
     out.to_csv(out_csv, index=False)
     print(f"Merged {len(paths)} files -> {out_csv}")
+    
+s1=5.0
+s2=12.0
 
-name = "Evaluation_N100_s8_P4_I8_L20_1_4_1_200_50_0_10"
+name = "Evaluation_Validation" + f"_N25-75_s{s1}-{s2}_P4_I8_L20_1_4_1_200_50_0_10" #Evaluation #Evaluation_Validation
+
 concat_all_csvs(f"../data/Data_Dagger_0.8_flat_0/{name}", f"../data/Data_Dagger_0.8_flat_0/{name}/merged_{name}.csv")
+concat_all_csvs(f"../data/Data_Dagger_0.8_flat_0/{name}", f"../data/Data_Dagger_0.8_flat_0/{name}/Actions_agg_dist.csv", pattern="Agg*")
 
 #name = "Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10/SimInstances"
 #concat_all_csvs(f"../data/Data_Dagger_0.8_flat/{name}", f"../data/Data_Dagger_0.8_flat/{name}/merged_instances.csv", "*patients.csv", True)
@@ -49,7 +54,7 @@ from pathlib import Path
 import re
 
 # Root directory containing the folders
-root_dir = Path("../data/Data_Dagger_0.8_flat_0/Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10")
+root_dir = Path(f"../data/Data_Dagger_0.8_flat_0/Instances_N25-75_s{s1}-{s2}_P4_I8_L20_1_4_1_200_50_0_10")
 
 # Name of the CSV file inside each folder
 csv_name = "Train_stats/Train_time_all.csv"

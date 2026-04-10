@@ -41,7 +41,7 @@ def main():
     ]
     name = "_".join(components)
     folder = f"{config.policy}_{name}/"
-    train_folder = f"../data/Data_Dagger_{config.lambda_}_{config.adapter}/Instances_N{config.ocs_param['N']}_s{config.ocs_param['sigma']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
+    train_folder = f"../data/Data_Dagger_{config.lambda_}_{config.adapter}/Instances_N{config.ocs_param['N1']}-{config.ocs_param['N2']}_s{config.ocs_param['sigma1']}-{config.ocs_param['sigma2']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
     output_dir = os.path.join(train_folder, folder)
     os.makedirs(output_dir, exist_ok=True)
     name2 = "_".join(components2)
@@ -57,8 +57,10 @@ def main():
 
     # Initialise simulators & learners
     sim = AppointmentScheduler(
-        n_patients=config.ocs_param['N'],
-        sigma = config.ocs_param['sigma'],
+        n_patients1=config.ocs_param['N1'],
+        sigma1=config.ocs_param['sigma1'],
+        n_patients2=config.ocs_param['N2'],
+        sigma2=config.ocs_param['sigma2'],
         n_phys=config.ocs_param['P'],
         n_slots=config.ocs_param['I'],
         # --- costs wired to your class fields used in build_model ---

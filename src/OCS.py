@@ -15,11 +15,13 @@ import json
 from dataclasses import dataclass
 from typing import List, Tuple, Dict
 from pyomo.environ import ConcreteModel, Constraint, Var, Objective
-from pyomo.environ import Binary, NonNegativeIntegers, maximize, minimize, value, NonNegativeReals
+from pyomo.environ import Binary, NonNegativeIntegers, minimize, value, NonNegativeReals
 from pyomo.opt import SolverFactory
 from utility import parse_args, build_config
+from scipy.stats import beta as beta_dist, norm, binom, truncnorm
 from typing import Optional
 import psutil, threading
+
 
 
 def track_memory(interval=0.5):
@@ -61,8 +63,10 @@ class AppointmentScheduler:
     """
     def __init__(
         self,
-        n_patients: int = 100,
-        sigma: int = 8,
+        n_patients1: int = 25,
+        sigma1: int = 8,
+        n_patients2: int = 100,
+        sigma2: int = 8,
         n_phys: int = 5,
         n_slots: int = 8,
         slot_minutes: int = 30,
@@ -78,6 +82,7 @@ class AppointmentScheduler:
         k_max:Optional[int] = None,
         k_min:Optional[int] = None,
         physician_weights: bool = False,
+        var:int=0,
         seed: int = 123,
         time_limit: int = 30,
         mipgap:int = 0,
@@ -85,8 +90,10 @@ class AppointmentScheduler:
         suffix: bool= True
     ):
         # Sizes / time structure
-        self.N = n_patients
-        self.sigma = sigma
+        self.N1 = n_patients1
+        self.sigma1 = sigma1
+        self.N2 = n_patients2
+        self.sigma2 = sigma2
         self.P = n_phys
         self.I = n_slots
         self.Delta = slot_minutes
@@ -95,12 +102,12 @@ class AppointmentScheduler:
         # Behavior parameters
         self.accept_prob = accept_prob
         self.show_prob = show_prob
-        self.p1_fraction = 0.25  # fraction of priority-1 patients
-
+        
         # Costs
         self.c_miss_1 = c_miss_1
         self.c_miss_2 = c_miss_2
         self.c_o = c_overtime
+        self.var = var
         self.c_np_per = c_np_per
         self.c_nonpref_1 = c_np_per/100 * c_miss_1
         self.c_nonpref_2 = c_np_per/100 * c_miss_2
@@ -113,7 +120,7 @@ class AppointmentScheduler:
         self.seed = seed
         self.time_limit = time_limit
         self.mipgap = mipgap
-        self.out_dir = out_dir + f"Instances_N{n_patients}_s{sigma}_P{n_phys}_I{n_slots}_L{cap_per_phys}_{k_min}_{k_max}_{physician_weights}_{c_miss_1}_{c_miss_2}_{c_overtime}_{c_np_per}" if suffix else out_dir
+        self.out_dir = out_dir + f"Instances_N{n_patients1}-{n_patients2}_s{sigma1}-{sigma2}_P{n_phys}_I{n_slots}_L{cap_per_phys}_{k_min}_{k_max}_{physician_weights}_{c_miss_1}_{c_miss_2}_{c_overtime}_{c_np_per}" if suffix else out_dir
         self.eligibility_mode = "dirichlet_topk"
         if  self.eligibility_mode == "dirichlet_topk":
             
@@ -133,6 +140,7 @@ class AppointmentScheduler:
 
         # Independent RNGs
         self._init_rngs(seed)
+    
 
         # Populated by generate_instance()
         self.patients: List[Patient] = []
@@ -155,7 +163,7 @@ class AppointmentScheduler:
         self.slot_generator = np.random.default_rng(streams[6])
         self.priority_generator = np.random.default_rng(streams[7])
         self.score_generator = np.random.default_rng(streams[8])
-        self.total_p_generator = np.random.default_rng(streams[9])
+        self.p_generator = np.random.default_rng(streams[9])
         self.eligibile_phys_generator = np.random.default_rng(streams[10])
         self.K_generator = np.random.default_rng(streams[11])
 
@@ -173,10 +181,15 @@ class AppointmentScheduler:
         (beta-distributed, P1 skew late; P2 uniform) with small jitter for stability.
         After sorting, overwrite IDs to reflect arrival order.
         """
+        
         self.patients.clear()
-        self.N_total = int(round(self.total_p_generator.normal(loc=self.N, scale=self.sigma)))
-        for n in range(self.N_total):
-            self.patients.append(self.generate_patient(n))
+        self.N_p1 = max(0,int(round(self.p_generator.normal(loc=self.N1, scale=self.sigma1))))
+        self.N_p2 = max(0, int(round(self.p_generator.normal(loc=self.N2, scale=self.sigma2))))
+        self.N_total = self.N_p1 + self.N_p2
+        for n in range(self.N_p1):
+            self.patients.append(self.generate_patient(n, 1))
+        for n in range(self.N_p2):
+            self.patients.append(self.generate_patient(n, 2))
 
         # jitter to break ties deterministically
         #jitter = self.jitter_generator.uniform(0, 1e-9, size=len(self.patients))
@@ -187,6 +200,21 @@ class AppointmentScheduler:
             p._id = rank
             p.pid = f"pat_{p.priority}_{rank}"  # optional: encode priority+order
         self.patients = ordered
+        
+        # if len(self.patients) >= 85:
+        #     self.patients[84] = Patient(
+        #         pid=f"pat_{1}_84",
+        #         _id=84,
+        #         duration=float(20),
+        #         preferred_phys=int(0),
+        #         preferred_slot=-1,   # no-slot model
+        #         priority=int(1),
+        #         A={0: 1, 1: 1, 2: 1, 3: 1},
+        #         Y={0: 1, 1: 1, 2: 1, 3: 1},
+        #         score=self.patients[84].score,
+        #         eligible={0: 1, 1: 1, 2: 1, 3: 1},      # keep the eligibility snapshot if useful downstream
+        #     )
+            
         
     def _eligible_dirichlet_topk(self) -> tuple[dict[int, int], np.ndarray]:
         """
@@ -224,9 +252,9 @@ class AppointmentScheduler:
         Truncated lognormal service time (minutes), shorter for P1 on average.
         """
         if priority == 2:
-            mu, sigma = 2.3, 0.3
+            mu, sigma = 2.3,  0.3 if self.var ==0 else 0.8 #0.3 0.8
         else:
-            mu, sigma = 3, 0.8
+            mu, sigma = 3,  0.8 if self.var ==0 else 1.2  #0.8, 1.2
         val = self.duration_generator.lognormal(mean=mu, sigma=sigma)
         return int(np.round(np.clip(val, 4, 60), 0))  # truncate to [4, 60]
     
@@ -241,7 +269,7 @@ class AppointmentScheduler:
         if mode == "dirichlet_topk":
             return self._eligible_dirichlet_topk()
     
-    def generate_patient(self, n: int) -> Patient:
+    def generate_patient(self, n: int, prio: int,  score_lower: float = 0.0) -> Patient:
         """
         Generate a single patient:
           - priority in {1,2} with P(P1)=p1_fraction
@@ -252,13 +280,28 @@ class AppointmentScheduler:
           - attendance Y[p]: P2 shows on all; P1 shows on preferred, else Bernoulli(show_prob)
         """
         # Priority & duration
-        prio = 1 if self.priority_generator.uniform() < self.p1_fraction else 2
+        
         duration = self.sample_duration(prio)
     
         # Arrival score (P1 skew late; P2 uniform)
         a, b = (3.0, 1.0) if prio == 1 else (1.0, 1.0)
-        score = float(self.rank_generator.beta(a, b))
-    
+
+        if score_lower <= 0.0:
+            # original path — unchanged
+            score = float(self.rank_generator.beta(a, b))
+        else:
+            # truncated Beta: sample conditioned on score > score_lower
+
+            if score_lower <= 0.0:
+                score = float(self.rank_generator.beta(a, b))
+            else:
+                cdf_lower = beta_dist.cdf(score_lower, a, b)
+                if cdf_lower >= 1.0 - 1e-9:
+                    score = float(score_lower)
+                else:
+                    u = float(self.rank_generator.uniform(cdf_lower, 1.0 - 1e-12))
+                    score = max(float(beta_dist.ppf(u, a, b)), score_lower)
+                
         # --- Eligible set first ---
         E_map, weights = self._sample_eligible_set()  # weights is taste (Dirichlet) or global w
         elig_idx = [p for p, e in E_map.items() if e == 1]
@@ -480,7 +523,7 @@ class AppointmentScheduler:
         if self.solver is None:
             raise RuntimeError(f"Solver {name} not available")
         self.solver.options["TimeLimit"] = self.time_limit
-        self.solver.options["Threads"] = 2   
+        self.solver.options["Threads"] = 2
         self.solver.options["MIPGap"] = self.mipgap 
 
     def solve(self, tee: bool = False):
@@ -488,8 +531,12 @@ class AppointmentScheduler:
         assert self.model is not None
         #start = time.time()
         res = self.solver.solve(self.model, tee=tee)
+
         #duration = time.time() - start
-        duration = res.solver.time
+        #print(res.solver.__dict__)
+        duration = res.solver._list[0]['Wall time']
+        #duration = res.solver._list[0]['Time']
+        
         status = str(res.solver.status)
         term = str(res.solver.termination_condition)
         # Try to compute MIP gap
@@ -650,7 +697,7 @@ class AppointmentScheduler:
                     "work_minutes": float(rec.get("work_minutes", 0.0)),
                     "penalty": 0.0,
                     "B_over": 0.0,
-                    "row_cost": 0.0,
+                    "row_cost": 0.0
                 })
             for rec in sol.get("rejected", []):
                 pen = float(rec.get("penalty", 0.0))
@@ -668,7 +715,7 @@ class AppointmentScheduler:
                     "work_minutes": 0.0,
                     "penalty": pen,
                     "B_over": 0.0,
-                    "row_cost": pen,
+                    "row_cost": pen
                 })
     
             kind_order = {"assign": 0, "reject": 1}
@@ -734,7 +781,8 @@ class AppointmentScheduler:
                 "objective_check": reject_pen_total + overtime_pen_total + nonpref_pen_total
             },
             "params": {
-                "N": self.N,
+                "N1": self.N1,
+                "N2": self.N2,
                 "N_total": getattr(self, "N_total", getattr(self, "N", None)),
                 "P": self.P,
                 "session_time": self.session_time,
@@ -915,6 +963,7 @@ class AppointmentScheduler:
         self._sim_work_per_phys = [0.0] * self.P  # sum of duration * Y[n,p]
         self._sim_accepted_count = 0
         self._sim_accepted_priority_phy = {i :{1:0, 2:0} for i in range(self.P)}
+        self._sim_patient_count = {1:0, 2:0}
 
         # default config if not set
         if not hasattr(self, "_sim_cfg"):
@@ -1170,16 +1219,19 @@ class AppointmentScheduler:
                 "available_phys": available_phys,   # capacity availability
                 "eligible_phys": eligible_phys,     # NEW eligibility mask
             }
-
+            self._sim_patient_count[int(pat.priority)] += 1
+            
     
         return {
             "t": self._sim_t,
-            "N": self.N,
+            "N1": self.N1,
+            "N2": self.N2,
             "N_total": self.N_total,
             "P": self.P,
             "Rmax": self.Rmax,
             "session_time": self.session_time,
             "patients_arrived": self._sim_t + 1,
+            "patient_count":self._sim_patient_count,
             "current_patient": cur,
             "work_per_phys": list(self._sim_work_per_phys),
             "assigned_per_phys": list(self._sim_assigned_per_phys),
@@ -1276,8 +1328,7 @@ class AppointmentScheduler:
                 #try:
                 prio = int(getattr(self.patients[idx], "priority", 2))
                 total_arrivals[prio] +=1
-                #except:
-                #    print(idx, self.N, self.N_total)
+
                 if prio == 1:
                     forced_rejects_p1 += 1
                 else:
@@ -1382,7 +1433,7 @@ class AppointmentScheduler:
     
         # Duration from your truncated lognormal per priority
         duration = int(cur_state.get("duration"))
-        score = 0
+        score = cur_state.get("score")
         E_map = cur_state.get("eligible_phys")
         E_map = {i: E_map[i] for i in range(len(E_map)) }
         # Physician-level acceptability A[p]: preferred = 1; others with accept_prob
@@ -1441,130 +1492,228 @@ class AppointmentScheduler:
         return self.P if allow_reject_if_none else -1
 
     
-    def _sample_total_N_given_arrivals(self,
-        n_already: int,
-        max_tries: int = 1000,
-    ) -> int:
-        """
-        Sample an integer total N ~ Normal(mean, std^2) conditional on N >= n_already.
-        Uses rejection sampling, rounds to nearest int, and enforces bounds.
+    # def _sample_total_N_given_arrivals(self,
+    #     n_already: dict,
+    #     max_tries: int = 1000,
+    # ) -> int:
+    #     """
+    #     Sample an integer total N ~ Normal(mean, std^2) conditional on N >= n_already.
+    #     Uses rejection sampling, rounds to nearest int, and enforces bounds.
     
-        Parameters
-        ----------
-        n_already : int
-            Number that have already arrived (lower truncation point).
-        mean : float
-            Mean of the (untruncated) normal prior for total N.
-        std : float
-            Standard deviation of the (untruncated) normal prior for total N (must be > 0).
-        N_min : int, default 1
-            Absolute lower bound for N before applying n_already constraint.
-        N_max : int | None, default None
-            Optional absolute upper bound for N. If None, no upper bound.
-        seed : int | None, default None
-            RNG seed for reproducibility.
-        max_tries : int, default 1000
-            Maximum rejection attempts before falling back to a clipped value.
+    #     Parameters
+    #     ----------
+    #     n_already : int
+    #         Number that have already arrived (lower truncation point).
+    #     mean : float
+    #         Mean of the (untruncated) normal prior for total N.
+    #     std : float
+    #         Standard deviation of the (untruncated) normal prior for total N (must be > 0).
+    #     N_min : int, default 1
+    #         Absolute lower bound for N before applying n_already constraint.
+    #     N_max : int | None, default None
+    #         Optional absolute upper bound for N. If None, no upper bound.
+    #     seed : int | None, default None
+    #         RNG seed for reproducibility.
+    #     max_tries : int, default 1000
+    #         Maximum rejection attempts before falling back to a clipped value.
     
-        Returns
-        -------
-        int
-            A sampled total N that satisfies N >= n_already and N in [N_min, N_max].
+    #     Returns
+    #     -------
+    #     int
+    #         A sampled total N that satisfies N >= n_already and N in [N_min, N_max].
     
-        Notes
-        -----
-        - This is an exact sample from the conditional distribution
-          Normal(mean, std^2) given N >= n_already (and <= N_max if provided),
-          up to rounding to the nearest integer.
-        - If acceptance becomes extremely unlikely (deep tail), the function
-          falls back to a clipped rounded mean to ensure progress.
-        """
+    #     Notes
+    #     -----
+    #     - This is an exact sample from the conditional distribution
+    #       Normal(mean, std^2) given N >= n_already (and <= N_max if provided),
+    #       up to rounding to the nearest integer.
+    #     - If acceptance becomes extremely unlikely (deep tail), the function
+    #       falls back to a clipped rounded mean to ensure progress.
+    #     """
         
-        if self.sigma == 0:
-            return self.N
+    #     if self.sigma1 == 0:
+    #         N1 = max(self.N1, n_already[1])
+    #     else:
+    #         accepted = False
+    #         for _ in range(max_tries):
+    #             draw = self.p_generator.normal(loc=self.N1, scale=self.sigma1)
+    #             candidate = max(0, int(round(draw)))
+    #             if candidate >= n_already[1]:
+    #                 N1 = candidate
+    #                 accepted = True
+    #                 break
     
-        if self.sigma < 0:
-            raise ValueError("std must be > 0")
+    #         if not accepted:
+    #             # fallback (clipped mean)
+    #             N1 = max(int(round(self.N1)), n_already[1])
+    
+    #     # ---- Sample N2 ----
+    #     if self.sigma2 == 0:
+    #         N2 = max(self.N2, n_already[2])
+    #     else:
+    #         accepted = False
+    #         for _ in range(max_tries):
+    #             draw = self.p_generator.normal(loc=self.N2, scale=self.sigma2)
+    #             candidate = max(0, int(round(draw)))
+    #             if candidate >= n_already[2]:
+    #                 N2 = candidate
+    #                 accepted = True
+    #                 break
+    
+    #         if not accepted:
+    #             N2 = max(int(round(self.N2)), n_already[2])
+    
+    #     return N1 , N2
+    
+    # def _sample_total_N_given_arrivals(self, n_already: dict, **kwargs) -> tuple[int, int]:
         
-        for _ in range(max_tries):
-            draw = self.total_p_generator.normal(loc=self.N, scale=self.sigma)
-            N = int(round(draw))
-            if N < n_already:
-                continue
-            return N
+    #     def sample_truncated(mu, sigma, n_min):
+    #         if sigma == 0:
+    #             return max(mu, n_min)
+    #         # Standardize the lower bound
+    #         a = (n_min - mu) / sigma   # lower bound in standard normal units
+    #         # b = inf (no upper bound)
+    #         rv = truncnorm(a=a, b=np.inf, loc=mu, scale=sigma)
+    #         draw = rv.rvs(random_state=self.p_generator)
+    #         return max(n_min, int(round(draw)))
+        
+    #     N1 = sample_truncated(self.N1, self.sigma1, n_already[1])
+    #     N2 = sample_truncated(self.N2, self.sigma2, n_already[2])
+    #     return N1, N2
     
-        # Fallback if the truncated region is extremely small
-        N = int(round(self.N))
-        N = max(n_already, N)
-        return N
+    def _sample_N_future(self, n_already: dict, s_mid: float) -> tuple[int, int]:
+
+    
+        def sample(mu, sigma, n_arrived, a, b):
+            # P(score < s_mid) under Beta(a, b)
+            p = beta_dist.cdf(s_mid, a, b)
+    
+            # Discrete posterior: P(N_total | n_arrived) ∝ Binom(n_arrived; N_total, p) * Normal(N_total; mu, sigma)
+            # Cover both prior and likelihood peak
+            likelihood_peak = int(n_arrived / p) if p > 1e-9 else mu
+            N_max = int(max(mu + 6 * sigma, likelihood_peak + 6 * sigma))
+            N_vals = np.arange(n_arrived, N_max + 1)
+            prior = norm.pdf(N_vals, mu, sigma)
+            likelihood = binom.pmf(n_arrived, N_vals, p)
+            weights = prior * likelihood
+            weights /= weights.sum()
+    
+            N_total = int(self.p_generator.choice(N_vals, p=weights))
+    
+            # All remaining must arrive after s_mid — no Binomial
+            return max(0, N_total - n_arrived)
+    
+        N1_future = sample(self.N1, self.sigma1, n_already[1], 3.0, 1.0)
+        N2_future = sample(self.N2, self.sigma2, n_already[2], 1.0, 1.0)
+    
+        return N1_future, N2_future
+    
+    def _sample_N_future_rejection(
+        self,
+        n_already: dict,
+        s_mid: float,
+        max_tries: int = 100_000,
+    ) -> tuple[int, int]:
+        #from scipy.stats import beta as beta_dist, norm, binom
+    
+        a1, b1 = 3.0, 1.0  # P1: Beta(3,1)
+        a2, b2 = 1.0, 1.0  # P2: Beta(1,1)
+    
+        p1 = beta_dist.cdf(s_mid, a1, b1)
+        p2 = beta_dist.cdf(s_mid, a2, b2)
+    
+        n1_arrived = n_already[1]
+        n2_arrived = n_already[2]
+    
+        def rejection_sample(mu, sigma, n_arrived, a, b, p):
+            """
+            Rejection sample N_future for one priority independently.
+            """
+            for _ in range(max_tries):
+                # Draw N_total from prior
+                N_total = max(n_arrived, int(round(
+                    self.p_generator.normal(loc=mu, scale=sigma)
+                )))
+                # Draw all scores
+                scores = self.rank_generator.beta(a, b, size=N_total)
+                # Count past arrivals
+                n_simulated = int(np.sum(scores < s_mid))
+                # Accept if matches observation
+                if n_simulated == n_arrived:
+                    return int(np.sum(scores > s_mid))
+            return None  # failed
+    
+        # --- P1 ---
+        N1_future = rejection_sample(self.N1, self.sigma1, n1_arrived, a1, b1, p1)
+    
+        # --- P2 ---
+        N2_future = rejection_sample(self.N2, self.sigma2, n2_arrived, a2, b2, p2)
+    
+        # --- Fallback if either failed ---
+        def posterior_fallback(mu, sigma, n_arrived, a, b):
+            p = beta_dist.cdf(s_mid, a, b)
+            likelihood_peak = int(n_arrived / p) if p > 1e-9 else mu
+            N_max = int(max(mu + 6*sigma, likelihood_peak + 6*sigma))
+            N_vals = np.arange(n_arrived, N_max + 1)
+            prior      = norm.pdf(N_vals, mu, sigma)
+            likelihood = binom.pmf(n_arrived, N_vals, p)
+            weights    = prior * likelihood
+            total      = weights.sum()
+            if total < 1e-300:
+                N_total = max(n_arrived, likelihood_peak)
+            else:
+                weights /= total
+                N_total = int(self.p_generator.choice(N_vals, p=weights))
+            return max(0, N_total - n_arrived)
+    
+        if N1_future is None:
+            print(f"[WARN] P1 rejection failed (n1={n1_arrived}, s_mid={s_mid:.4f}). Using posterior fallback.")
+            N1_future = posterior_fallback(self.N1, self.sigma1, n1_arrived, a1, b1)
+    
+        if N2_future is None:
+            print(f"[WARN] P2 rejection failed (n2={n2_arrived}, s_mid={s_mid:.4f}). Using posterior fallback.")
+            N2_future = posterior_fallback(self.N2, self.sigma2, n2_arrived, a2, b2)
+    
+        return N1_future, N2_future
 
 
-    def regenerate_scenario(self, state: Dict, patients: Optional[List["Patient"]] = None,  new: int = 1):
-        """
-        Regenerate a 'future scenario' cohort based on the current simulator state.
-
-        Args:
-            state: A dict like the one returned by self._sim_state() / reset_sim() / step().
-                   It must contain keys: 't' and 'current_patient'.
-            patients: Optional full list to reuse when new == 0. If None, falls back to self.patients.
-            new: If 1 (default), generate *new* patients for the remaining horizon.
-                 If 0, reuse the *same* patients already created (either from `patients` arg,
-                 or from `self.patients`).
-
-        Side-effects:
-            - Sets self.regenerated_patients to a list containing:
-              [ current_patient, future_patient_{t+1}, ... ]
-            - Keeps order consistent with arrival order.
-        """
+    def regenerate_scenario(self, state: Dict, patients: Optional[List["Patient"]] = None, new: int = 1):
         if "t" not in state:
             raise ValueError("State missing 't'. Pass a state returned by reset_sim()/step().")
-
+    
         t = int(state["t"])
-
-        # Current patient from the authoritative store (preserves A/Y maps, etc.)
         cur_state = state.get("current_patient", None)
-
-        regenerated: List["Patient"] = []
-
+    
         cur_pat = self._synthesize_patient_from_state_cur(cur_state)
-        # Tag as regen view
         cur_pat.pid = f"regen_{cur_pat.pid}"
         regenerated: List["Patient"] = [cur_pat]
-
-        # How many future patients remain after the current index?
-        N_curr = state["patients_arrived"]
-        self.N_total  = self._sample_total_N_given_arrivals(N_curr)
-        remaining = max(0, self.N_total - (t + 1))
-
-
+    
+        # s_mid is the current patient's score — all future scores must be > s_mid
+        s_mid = float(getattr(cur_pat, "score", 0.0))       # <-- NEW
+        N_curr = state["patient_count"]
+    
+        # Model B: exact posterior, N_future = N_total - n_arrived directly
+        N1_future, N2_future = self._sample_N_future(N_curr, s_mid)  # <-- NEW
+    
         if int(new) == 1:
-            # -------- Generate brand-new future patients --------
-            # We’ll generate `remaining` patients and assign sequential arrival IDs after `t`.
-            for k in range(remaining):
-                # Generate a fresh patient using your RNG streams
-                p = self.generate_patient(n=t + 1 + k)
-                # Tag PID so it's clear these are regenerated
-                # Ensure arrival order IDs are sequential after t
-                p._id = t + 1 + k
+            for k in range(N1_future):
+                p = self.generate_patient(cur_pat._id + 1 + k, 1, score_lower=s_mid)  # <-- score_lower
                 regenerated.append(p)
-                
-            #jitter = self.jitter_generator.uniform(0, 1e-9, size=len(regenerated))
-            ordered = sorted(regenerated, key=lambda p: (p.score))
-
-            # Overwrite IDs to arrival order
+            for k in range(N2_future):
+                p = self.generate_patient(cur_pat._id + N1_future + 1 + k, 2, score_lower=s_mid)  # <-- score_lower
+                regenerated.append(p)
+    
+            ordered = sorted(regenerated, key=lambda p: p.score)
             for rank, p in enumerate(ordered):
                 p._id = rank
-                p.pid = f"regenpat_{p.priority}_{rank}"  # optional: encode priority+order
-
+                p.pid = f"regenpat_{p.priority}_{rank}"
             regenerated = ordered
-
+    
         else:
-            # -------- Reuse the same original future cohort --------
+            # new == 0 path unchanged
             base = patients if (patients is not None) else self.patients
-            # Keep those strictly after current patient's arrival order
             future_same = sorted([p for p in base if int(p._id) > int(cur_pat._id)], key=lambda q: int(q._id))
             for p in future_same:
-                # Shallow copy & tag; preserve A/Y/priority/duration etc.
                 pcopy = type(p)(
                     pid=f"regen_{p.pid}",
                     _id=int(p._id),
@@ -1578,16 +1727,11 @@ class AppointmentScheduler:
                     eligible=dict(getattr(p, "eligible", {}))
                 )
                 regenerated.append(pcopy)
-
-        # Store for later use
-        self.regenerated_patients = regenerated       
     
+        self.regenerated_patients = regenerated    
     # ============================
     # Simulation trace persistence
     # ============================
-
-
-
     def save_sim_trace_csv(
         self,
         tag: str,
@@ -1829,8 +1973,10 @@ if __name__ == "__main__":
     config = build_config(args)
     
     sched = AppointmentScheduler(
-        n_patients=config.ocs_param['N'],
-        sigma=config.ocs_param['sigma'],
+        n_patients1=config.ocs_param['N1'],
+        sigma1=config.ocs_param['sigma1'],
+        n_patients2=config.ocs_param['N2'],
+        sigma2=config.ocs_param['sigma2'],
         n_phys=config.ocs_param['P'],
         n_slots=config.ocs_param['I'],
         k_max=config.ocs_param['k_max'],
@@ -1843,6 +1989,7 @@ if __name__ == "__main__":
         physician_weights=config.ocs_param['physician_weights'],
         release_cap=config.ocs_param['Rmax'],
         cap_per_phys=config.ocs_param['L'],
+        var=config.ocs_param['var'],
         time_limit=config.time_limit,
         seed=config.seed,
     )
@@ -1860,6 +2007,9 @@ if __name__ == "__main__":
     print("Overtime per phys:", summary["overtime_minutes_per_phys"])
     print("Overtime penalty:", summary["overtime_penalty"])
     
-        
+    state = {'t': 10, 'N1': 25, 'N2': 75, 'N_total': 98, 'P': 4, 'Rmax': 80, 'session_time': 240, 'patients_arrived': 5, 'patient_count': {1: 5, 2: 10}, 'current_patient': {'n': 10, 'pid': 'pat_2_10', 'priority': 2, 'score': 0.14974896724410341, 'duration': 12.0, 'preferred_phys': 0, 'available_phys': [1, 1, 1, 1], 'eligible_phys': [1, 1, 0, 0]}, 'work_per_phys': [60.0, 31.0, 11.0, 0.0], 'assigned_per_phys': [6, 3, 1, 0], 'cap_remaining': [14, 17, 19, 20], 'accepted_count': 10, 'accepted_priority_phy': {0: {1: 0, 2: 7}, 1: {1: 0, 2: 3}, 2: {1: 1, 2: 0}, 3: {1: 0, 2: 0}}, 'remaining_release': 70, 'done': False}
+    sched.regenerate_scenario(state)
+    sched.build_model(sched.regenerated_patients, state=state)
+    status, termination, gap, sol_time = sched.solve(tee=True)
     stop_flag = True
     thread.join()

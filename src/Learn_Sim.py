@@ -42,6 +42,7 @@ def run_instance(n, k, sim, learner, folder, policy, config: Config):
     state, done = sim.reset_simulator()
 
     while not done:
+        #print("State - ", state)
         x = learner.get_feature_vector(state)
         action, pred = learner.get_action(state, k, policy, x)
         #if state['time'] == 47:
@@ -49,6 +50,7 @@ def run_instance(n, k, sim, learner, folder, policy, config: Config):
         if config.num_class == 2 and action:
             action = sim.select_physician(state)
         learner.add_new_data_avg(x + [action], k = k)
+        #print("Assign Patient - ", state["t"], " to physician ", action)
         next_state, reward, feasible, done = sim.step(action)
         states.append(state)
         actions.append(action)
@@ -97,21 +99,23 @@ def main():
     ]
     name = "_".join(components)
     folder = f"{config.policy}_{name}/"
-    train_folder = f"../data/Data_Dagger_{config.lambda_}_{config.adapter}_{config.evolve_expert}/Instances_N{config.ocs_param['N']}_s{config.ocs_param['sigma']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
+    train_folder = f"../data/Data_Dagger_{config.lambda_}_{config.adapter}_{config.evolve_expert}/Instances_N{config.ocs_param['N1']}-{config.ocs_param['N2']}_s{config.ocs_param['sigma1']}-{config.ocs_param['sigma2']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
     output_dir = os.path.join(train_folder, folder)
     os.makedirs(output_dir, exist_ok=True)
 
     # Logging & seed
     setup_logging(output_dir)
-
+    config_file = "config_Evaluation"  if config.seed == 5001 else "config_Evaluation_Validation"
     # Save config
-    with open(os.path.join(output_dir, "config.json"), 'w') as f:
+    with open(os.path.join(output_dir, f"{config_file}.json"), 'w') as f:
         json.dump(asdict(config), f, indent=4)
 
     # Initialise simulators & learners
     sim = AppointmentScheduler(
-        n_patients=config.ocs_param['N'],
-        sigma = config.ocs_param['sigma'],
+        n_patients1=config.ocs_param['N1'],
+        sigma1=config.ocs_param['sigma1'],
+        n_patients2=config.ocs_param['N2'],
+        sigma2=config.ocs_param['sigma2'],
         n_phys=config.ocs_param['P'],
         n_slots=config.ocs_param['I'],
         k_max=config.ocs_param['k_max'],
@@ -124,6 +128,7 @@ def main():
         physician_weights=config.ocs_param['physician_weights'],
         release_cap=config.ocs_param['Rmax'],
         cap_per_phys=config.ocs_param['L'],
+        var=config.ocs_param['var'],
         time_limit=config.time_limit,
         seed=config.seed,
         out_dir=output_dir,
@@ -143,20 +148,22 @@ def main():
     for n in tqdm(range(config.sims), desc="Simulating Iterations", unit="iter"):
         #if n ==25:
         #    print("here")
-        sim.set_seed(n+1)
+        sim.set_seed(config.seed + n)
         sim.generate_instance()
         stats = run_instance(0, n, sim, learner, output_dir, policy, config)        
         sim_stats_all.append(stats)
         
+        
     all_data = pd.DataFrame.from_dict(learner.data, orient='index')
     all_data.columns = learner.feature_names + ["action", "gap", "obj" , "sol_time", "sim"]
-
-    output_dir = os.path.join(output_dir, "Evaluation")
+    sim_folder = "Evaluation"  if config.seed == 5001 else "Evaluation_Validation"
+    output_dir = os.path.join(output_dir, sim_folder)
     os.makedirs(output_dir, exist_ok=True)
     #all_data.to_csv(os.path.join(output_dir, f"Feature_sim_data_{config.model}.csv"), index=False)
     #learner.pred_history.to_csv(os.path.join(output_dir, f"Predict_data_{config.model}.csv"), index=False)
     df = pd.DataFrame(sim_stats_all)
     df.to_csv(os.path.join(output_dir, f"Sim_stats_{config.model}.csv"), index=False)
+    print("Stats Saved...")
     
     print("Average Cost = ", df.total_cost.mean())
 

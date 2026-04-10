@@ -54,22 +54,23 @@ def run_instance(n, k, sim, learner, folder, policy, config: Config):
     
     print(f"Start run {n} {k} at {log['start']}.")
     name = f"{n}_{k}"
-    if hasattr(sim, "patients"):
-        sim.save_instance_csv(f"{n}_{k}", sim.patients, "Instances")
-    elif hasattr(sim, "scenarios"):
-        sim.save_instance_csv(f"{n}_{k}", sim.scenarios, "Instances")
+    # if hasattr(sim, "patients"):
+    #     sim.save_instance_csv(f"{n}_{k}", sim.patients, "Instances")
+    # elif hasattr(sim, "scenarios"):
+    #     sim.save_instance_csv(f"{n}_{k}", sim.scenarios, "Instances")
     sim.build_model(sim.patients)
     status, termination, gap, sol_time = sim.solve(tee=True)
     print(f"Solver status = {status}, termination = {termination}, MIP gap = {gap}, Sol_time = {sol_time}")
     
     sol, obj_val = sim.extract_solution(sim.patients)
-    sim.save_solution_files(f"Instance{n}_{k}", sol, obj_val, status, termination, gap, sol_time)
+    #sim.save_solution_files(f"Instance{n}_{k}", sol, obj_val, status, termination, gap, sol_time)
     learner.iteration = k
     state, done = sim.reset_simulator()
     print("SIMULATING....")
     states, actions, feasibles, rewards = [], [], [], []
     while not done:
         #print("State - ", state)
+        #print(state['t'])
         expert_actions, gap, obj, sol_time = learner.get_expert_action(state, name)
         #print(sol_time)
         feature, action, decision_rule = learner.get_decision_to_take(state, k, policy, expert_actions)
@@ -79,15 +80,15 @@ def run_instance(n, k, sim, learner, folder, policy, config: Config):
         if config.evolve_expert:
             if sol_time <= 5:
                 learner.update_scenarios(1)
-        #print("Assign Patient - ", state["t"], " to physician ", action)
+        print("Assign Patient - ", state["t"], " to physician ", action)
         states.append(state)
         next_state, reward, feasible, done = sim.step(action)
         actions.append(action)
         rewards.append(reward)
         feasibles.append(feasible)
         state = next_state
-        #if state['time'] == 8:
-        #     break
+        #if state['t'] == 0:
+        #     exit()
     states.append(state)
     stats = sim.collect_stats(states, actions, rewards, feasibles)
     print("Stats - ", stats)
@@ -136,7 +137,7 @@ def main():
     ]
     name = "_".join(components)
     folder = f"{config.policy}_{name}/"
-    instance_name = f"Instances_N{config.ocs_param['N']}_s{config.ocs_param['sigma']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
+    instance_name = f"Instances_N{config.ocs_param['N1']}-{config.ocs_param['N2']}_s{config.ocs_param['sigma1']}-{config.ocs_param['sigma2']}_P{config.ocs_param['P']}_I{config.ocs_param['I']}_L{config.ocs_param['L']}_{config.ocs_param['k_min']}_{config.ocs_param['k_max']}_{config.ocs_param['physician_weights']}_{config.ocs_param['c_miss_1']}_{config.ocs_param['c_miss_2']}_{config.ocs_param['co']}_{config.ocs_param['cnp']}"
     train_folder = f"../data/Data_Dagger_{config.lambda_}_{config.adapter}_{config.evolve_expert}/{instance_name}"
     output_dir = os.path.join(train_folder, folder)
     os.makedirs(output_dir, exist_ok=True)
@@ -150,8 +151,10 @@ def main():
 
     # Initialise simulators & learners
     sim = [AppointmentScheduler(
-        n_patients=config.ocs_param['N'],
-        sigma = config.ocs_param['sigma'],
+        n_patients1=config.ocs_param['N1'],
+        sigma1=config.ocs_param['sigma1'],
+        n_patients2=config.ocs_param['N2'],
+        sigma2=config.ocs_param['sigma2'],
         n_phys=config.ocs_param['P'],
         n_slots=config.ocs_param['I'],
         k_max=config.ocs_param['k_max'],
@@ -166,6 +169,7 @@ def main():
         cap_per_phys=config.ocs_param['L'],
         time_limit=config.time_limit,
         mipgap=config.mipgap,
+        var=config.ocs_param['var'],
         seed=config.seed + _,
         out_dir=output_dir,
         suffix=False
@@ -197,7 +201,7 @@ def main():
         if model >= 0:
             config.model = model
             start = model + 1
-            policy.load_model(output_dir, asdict(config))
+            policy._load_model(output_dir, asdict(config))
             for i in range(config.runs):
                 sim[i].set_seed(110 + i)
                 learner[i].beta_update(start)
@@ -217,6 +221,7 @@ def main():
         logging.info(f"Iteration {n} | Beta = {learner[0].beta:.3f}")
     
         for i in range(config.runs):
+            #print(f"p_generator state before generate_instance n={n}: {sim[i].p_generator.bit_generator.state}")
             sim[i].generate_instance()
             learner[i].set_scenarios(1000 + n * 100 + i, asdict(config))
     

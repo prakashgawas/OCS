@@ -46,32 +46,34 @@ class Config:
     evolve_expert:int = 0
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Dynamic Bin Packing DAgger Trainer")
+    parser = argparse.ArgumentParser(description="Appointment Scheduling DAgger Trainer")
 
     # Learning settings
-    parser.add_argument('--learn_iter', type=int, default=2, help="Number of learning iterations")
-    parser.add_argument('--runs', type=int, default=2, help="Parallel simulation runs")
+    parser.add_argument('--learn_iter', type=int, default=5, help="Number of learning iterations")
+    parser.add_argument('--runs', type=int, default=1, help="Parallel simulation runs")
     parser.add_argument('--lm', type=float, default=0.8, help="Lambda value for learning")
     parser.add_argument('--time_limit', type=int, default=30, help="Solver time limit")
-    parser.add_argument('--mipgap', type=float, default=0.001, help="Solver allowed mipgap")
-    parser.add_argument('--scenarios', type=int, default=30, help="Number of stochastic scenarios")
-    parser.add_argument('--stoch', type=int, default=1, help="Enable stochastic runs")
-    parser.add_argument('--resume', type=int, default=0, help="Resume from last model")
+    parser.add_argument('--mipgap', type=float, default=0.02, help="Solver allowed mipgap")
+    parser.add_argument('--scenarios', type=int, default=4, help="Number of stochastic scenarios")
+    parser.add_argument('--stoch', type=int, default=0, help="Enable stochastic runs")
+    parser.add_argument('--resume', type=int, default=1, help="Resume from last model")
     parser.add_argument('--vanilla', type=int, default=1, help="Vanilla DAgger mode")
     parser.add_argument('--gated', type=int, default=0, help="Enable gated model")
     parser.add_argument('--um', type=int, default=1, help="Update model frequency")
     parser.add_argument('--new', type=int, default=1, help="Use new scenario")
     parser.add_argument('--use_weight', type=int, default=0, help="Use weighted loss")
     parser.add_argument('--train', type = int,  default=1, help="Number of simulations")
-    parser.add_argument('--model', type = int,  default=-1, help="Which model to run")
-    parser.add_argument('--sims', type = int,  default=1, help="Number of simulations")
-    parser.add_argument('--seed', type = int,  default=0, help="seed")
+    parser.add_argument('--model', type = int,  default=1, help="Which model to run")
+    parser.add_argument('--sims', type = int,  default=1000, help="Number of simulations")
+    parser.add_argument('--seed', type = int,  default=6001, help="seed")
     parser.add_argument('--store_sim', type = int,  default=0, help="store sime trace")
     parser.add_argument('--static_data', type = int,  default=0, help="use static data")
 
     # Problem settings
-    parser.add_argument('--N', type=int, default=100, help='number of patients, mean')
-    parser.add_argument('--s', type=int, default=8, help='std deviation')
+    parser.add_argument('--N1', type=int, default=25, help='number of patients, mean , prio 1')
+    parser.add_argument('--s1', type=float, default=5.0, help='std deviation prio 1')
+    parser.add_argument('--N2', type=int, default=75, help='number of patients, mean , prio 2')
+    parser.add_argument('--s2', type=float, default=12.0, help='std deviation prio 2')
     parser.add_argument('--P', type=int, default=4, help='number of physicians')
     parser.add_argument('--L', type=int, default=20, help='patient cap of physicians')
     parser.add_argument('--I', type=int, default=8, help='number of slots (used only for session_time = I*Delta)')
@@ -82,6 +84,7 @@ def parse_args():
     parser.add_argument('--cnp', type=int, default= 10, help='non pref percent')
     parser.add_argument('--Rmax', type=int, default=None, help='optional total acceptance cap')
     parser.add_argument('--kmin', type=int, default= 1, help='non pref percent')
+    parser.add_argument('--var', type=int, default= 1, help='high variance setting')
     parser.add_argument('--kmax', type=int, default= 4, help='non pref percent')
     parser.add_argument('--pw', type=int, default= 1, help='physician weights given')
     parser.add_argument('--epochs', type=int, default=100, help='number of epochs')
@@ -93,7 +96,7 @@ def parse_args():
     return parser.parse_args()
 
 def build_config(args) -> Config:
-    ocs_param = dict(N=args.N, sigma= args.s, P=args.P, I=args.I, L=args.L, k_min = args.kmin, k_max = args.kmax, physician_weights = args.pw, c_miss_1=args.c_miss_1, c_miss_2=args.c_miss_2, co=args.co, cnp= args.cnp, Rmax=args.Rmax)
+    ocs_param = dict(N1=args.N1, sigma1= args.s1, N2=args.N2, sigma2= args.s2, P=args.P, I=args.I, L=args.L, var=args.var, k_min = args.kmin, k_max = args.kmax, physician_weights = args.pw, c_miss_1=args.c_miss_1, c_miss_2=args.c_miss_2, co=args.co, cnp= args.cnp, Rmax=args.Rmax)
     num_class = 1 if args.task == "bin" else args.P + 1
     new = args.new if args.stoch == 0 else 1
     scenarios = 1 if new == 0 else args.scenarios

@@ -205,19 +205,19 @@ def combine_flat_jsons_to_csv(
 
 
 if __name__ == "__main__":
-    base_path = "../data/Deterministic/Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10/"
+    base_path = "../data/Deterministic/Instances_N25-75_s5.0-12.0_P4_I8_L20_1_4_1_200_50_0_10/"
     #base_path = "..data/Data_Dagger_0.8_flat/Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10/NN_iter1_runs1000_um1_new1_stoch1_sc30_van1_gat0_tl30_mg0.01_nc5/"
 
     folder_path = base_path + "instances_solution/"  # or the folder where the files are located
     output_path = folder_path + "merged_solutions.csv"
-    merge_files(folder_path, output_path, files="OCS" )
+    merge_files(folder_path, output_path, files="OCS" , start_id=6001, end_id=7000)
     output_path = folder_path + "combined_status.csv"
-    combine_json_meta_to_csv(folder_path, output_path, base="OCS")
+    combine_json_meta_to_csv(folder_path, output_path, base="OCS",start_id=6001, end_id=7000)
     folder_path = base_path + "instances/"  # or the folder where the files are located
     output_path = folder_path + "merged_instances_AYE.csv"
-    merge_files(folder_path, output_path, files="OCS", remain = 'AYE' )
+    merge_files(folder_path, output_path, files="OCS", remain = 'AYE' ,start_id=6001, end_id=7000)
     output_path = folder_path + "merged_instances.csv"
-    merge_files(folder_path, output_path, files="OCS", remain = 'patients' )
+    merge_files(folder_path, output_path, files="OCS", remain = 'patients'  , start_id=6001, end_id=7000)
     folder_path = base_path + "greedy/" 
     output_path = folder_path + "combined_stats_greedy.csv"
     combine_flat_jsons_to_csv(folder_path, output_csv= output_path)

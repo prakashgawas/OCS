@@ -679,5 +679,8 @@ class SupervisedNN:
                                         batch_size=config.get("batch_size", 256),
                                         epochs=config.get("epochs", 50),
                                         use_weight=config.get("use_weight", False),
+                                        target_mode=self.target_mode,                 # <— soft labels
+                                        dist_col="expert_distribution"
                                     )
+
         self.fit_count = n + 1

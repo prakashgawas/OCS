@@ -178,8 +178,8 @@ L = 20
 
 df = convert_solutions_to_features_csv_named(
     N=N,
-    folder   ="../data/Deterministic/Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10/instances_solution",
-    out_csv  ="../data/Deterministic/Instances_N100_s8_P4_I8_L20_1_4_1_200_50_0_10/instances_solution/offline_features_data.csv",
+    folder   ="../data/Deterministic/Instances_N25-75_s5-12_P4_I8_L20_1_4_1_200_50_0_10/instances_solution",
+    out_csv  ="../data/Deterministic/Instances_N25-75_s5-12_P4_I8_L20_1_4_1_200_50_0_10/instances_solution/offline_features_data.csv",
     file_glob="*_schedule.csv",
     Rmax=Rmax,
     cap_per_phys=L,

@@ -4,7 +4,7 @@
 We consider a **dynamic physician-to-patient assignment (PPA)** problem arising in clinic appointment booking. Patients (call-ins) arrive sequentially over a booking horizon until a cutoff time for a particular session. The clinic is staffed by multiple physicians, and each incoming request must be handled immediately by a receptionist.
 
 At each call-in, the receptionist must decide to **accept** or **reject** the request. If accepted, the receptionist must also decide **which physician** to assign to the patient among the patient’s eligible physicians. Decisions must be made online under uncertainty about future arrivals.
-
+##scheduler_env
 ## Physicians
 Let $\mathcal{P} = \{1, \dots, P\}$ denote the set of available physicians. Each physician $p \in \mathcal{P}$ has:
 - a regular session time $T$ (in minutes),
